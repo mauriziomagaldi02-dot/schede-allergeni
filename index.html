@@ -160,7 +160,16 @@
           <div id="schedaArchivePager" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"></div>
         </div>
 
+        <div class="card" style="margin-top:12px">
+          <h3>Backup / Ripristino</h3>
+          <div class="hint">I dati sono salvati solo in questo browser, legati a questo file HTML. Esporta un backup regolarmente e importalo se apri una copia diversa del file o cambi computer/browser.</div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button id="exportBackupBtn" class="btn primary">Esporta backup (.json)</button>
+            <button id="importBackupBtn" class="btn secondary">Importa backup (.json)</button>
+            <input id="importBackupFile" type="file" accept="application/json" style="display:none">
+          </div>
         </div>
+
       </div>
 
     </div>
@@ -249,6 +258,19 @@ function formatPriceDisplay(raw){
 }
 
 // Disegna il prezzo centrato con un riquadro arrotondato attorno; ritorna l'altezza del riquadro (mm)
+// Sceglie la dimensione più grande per il nome prodotto che stia in al massimo 2 righe,
+// cosi' i nomi lunghi non "rubano" spazio verticale agli allergeni (che non vanno mai tagliati).
+function pickTitleFontSize(doc, text, maxWidth){
+  const candidates = [16, 14, 12, 10.5, 9];
+  doc.setFont('helvetica', 'bold');
+  for (const s of candidates){
+    doc.setFontSize(s);
+    const lines = doc.splitTextToSize(text, maxWidth);
+    if (lines.length <= 2) return s;
+  }
+  return candidates[candidates.length-1];
+}
+
 function drawPriceBox(doc, centerX, y, text, fontSize=16, fillColorKey='giallo'){
   const col = getPriceColorRGB(fillColorKey);
   doc.setFont('helvetica','bold');
@@ -771,18 +793,20 @@ function exportLabelPdf(){
 
   doc.setTextColor(0,0,0);
 
-  function centerText(txt, size, gap, bold=true){
+  function centerText(txt, size, gap, bold=true, forceAll=false){
     doc.setFont('helvetica', bold ? 'bold' : 'normal');
     doc.setFontSize(size);
     const lines = doc.splitTextToSize(txt, pageW - margin*2);
     for (const L of lines){
-      if (y < usableH) doc.text(L, pageW/2, y, {align:'center'});
+      if (forceAll || y < usableH) doc.text(L, pageW/2, y, {align:'center'});
       y += gap;
     }
   }
 
-  // Nome prodotto (interlinea invariata)
-  centerText(product, 16, 7, true);
+  // Nome prodotto: dimensione adattiva (si riduce se il nome è lungo) per non consumare troppo spazio
+  const nameSize = pickTitleFontSize(doc, product, pageW - margin*2);
+  const nameGap = Math.round(nameSize*0.4375*10)/10;
+  centerText(product, nameSize, nameGap, true);
   // Prezzo (abbassato con uno spazio fisso indipendente dal nome, con riquadro)
   if (price) {
     y += 3;
@@ -791,10 +815,10 @@ function exportLabelPdf(){
   }
   // Spazio extra prima dell'elenco allergeni (abbassato)
   y += 2;
-  // Allergeni (carattere ridotto)
-  centerText('Allergeni: ' + (presentList.length ? presentList.join(', ') : '—'), 7.5, 3.6, false);
-  // Può contenere tracce di (carattere ridotto)
-  centerText('Può contenere tracce di ' + (traceList.length ? traceList.join(', ') : '—'), 7.5, 3.6, false);
+  // Allergeni (carattere ridotto) - non vengono mai tagliati, anche se lo spazio scarseggia
+  centerText('Allergeni: ' + (presentList.length ? presentList.join(', ') : '—'), 7.5, 3.6, false, true);
+  // Può contenere tracce di (carattere ridotto) - non viene mai tagliato
+  centerText('Può contenere tracce di ' + (traceList.length ? traceList.join(', ') : '—'), 7.5, 3.6, false, true);
 
   // Logo in basso a sinistra
   addLabelLogo(doc, 0, 0, pageW, pageH);
@@ -926,21 +950,23 @@ function exportOneLabelPdf(item){
   const frozenNote = frozenFootnoteFor(item.frozen);
 
   doc.setTextColor(0,0,0);
-  function centerText(txt, size, gap, bold=true){
+  function centerText(txt, size, gap, bold=true, forceAll=false){
     doc.setFont('helvetica', bold ? 'bold' : 'normal');
     doc.setFontSize(size);
     const lines = doc.splitTextToSize(txt, pageW - margin*2);
-    for (const L of lines){ if (y < usableH) doc.text(L, pageW/2, y, {align:'center'}); y += gap; }
+    for (const L of lines){ if (forceAll || y < usableH) doc.text(L, pageW/2, y, {align:'center'}); y += gap; }
   }
-  centerText(product, 16, 7, true);
+  const nameSize = pickTitleFontSize(doc, product, pageW - margin*2);
+  const nameGap = Math.round(nameSize*0.4375*10)/10;
+  centerText(product, nameSize, nameGap, true);
   if (price) {
     y += 3;
     const boxH = drawPriceBox(doc, pageW/2, y, price, 16, item.priceColor);
     y += boxH + 6;
   }
   y += 2;
-  centerText('Allergeni: ' + (presentList.length ? presentList.join(', ') : '—'), 7.5, 3.6, false);
-  centerText('Può contenere tracce di ' + (traceList.length ? traceList.join(', ') : '—'), 7.5, 3.6, false);
+  centerText('Allergeni: ' + (presentList.length ? presentList.join(', ') : '—'), 7.5, 3.6, false, true);
+  centerText('Può contenere tracce di ' + (traceList.length ? traceList.join(', ') : '—'), 7.5, 3.6, false, true);
 
   addLabelLogo(doc, 0, 0, pageW, pageH);
   drawLabelBottomRightNotes(doc, 0, 0, pageW, pageH, [
@@ -1010,22 +1036,24 @@ function printAllSavedLabels(){
     const traceList = item.traces || [];
     const frozenNote = frozenFootnoteFor(item.frozen);
 
-    function ctext(txt, size, gap, bold=true){
+    function ctext(txt, size, gap, bold=true, forceAll=false){
       doc.setFont('helvetica', bold ? 'bold' : 'normal');
       doc.setFontSize(size);
       const lines = doc.splitTextToSize(txt, maxW);
-      for(const L of lines){ if (cy < usableH) doc.text(L, x + cellW/2, cy, {align:'center'}); cy += gap; }
+      for(const L of lines){ if (forceAll || cy < usableH) doc.text(L, x + cellW/2, cy, {align:'center'}); cy += gap; }
     }
 
-    ctext(product, 16, 7, true);
+    const nameSize = pickTitleFontSize(doc, product, maxW);
+    const nameGap = Math.round(nameSize*0.4375*10)/10;
+    ctext(product, nameSize, nameGap, true);
     if (price) {
       cy += 3;
       const boxH = drawPriceBox(doc, x + cellW/2, cy, price, 16, item.priceColor);
       cy += boxH + 6;
     }
     cy += 2;
-    ctext('Allergeni: ' + (presentList.length ? presentList.join(', ') : '—'), 7.5, 3.6, false);
-    ctext('Può contenere tracce di ' + (traceList.length ? traceList.join(', ') : '—'), 7.5, 3.6, false);
+    ctext('Allergeni: ' + (presentList.length ? presentList.join(', ') : '—'), 7.5, 3.6, false, true);
+    ctext('Può contenere tracce di ' + (traceList.length ? traceList.join(', ') : '—'), 7.5, 3.6, false, true);
 
     addLabelLogo(doc, x, y, cellW, cellH);
     drawLabelBottomRightNotes(doc, x, y, cellW, cellH, [
@@ -1048,6 +1076,66 @@ function printAllSavedLabels(){
   doc.save('Etichette_salvate_A4.pdf');
 }
 
+// === Backup / Ripristino completo (schede + etichette) ===
+function exportBackup(){
+  const payload = {
+    tipo: 'familybar-backup',
+    versione: 1,
+    esportato_il: new Date().toISOString(),
+    schede: getSchedaArchive(),
+    etichette: getLabelArchive()
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `Backup_Familybar_${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importBackupFromFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const data = JSON.parse(e.target.result);
+      const schede = Array.isArray(data.schede) ? data.schede : null;
+      const etichette = Array.isArray(data.etichette) ? data.etichette : null;
+      if(!schede && !etichette){
+        alert('Il file selezionato non sembra un backup valido.');
+        return;
+      }
+      const arrScheda = getSchedaArchive();
+      const arrLabel = getLabelArchive();
+      let addedScheda = 0, addedLabel = 0;
+      if(schede){
+        schede.forEach(entry=>{
+          const idx = arrScheda.findIndex(x=>x.code && entry.code && x.code===entry.code);
+          if(idx>=0) arrScheda[idx] = entry; else { arrScheda.push(entry); addedScheda++; }
+        });
+        setSchedaArchive(arrScheda);
+      }
+      if(etichette){
+        etichette.forEach(entry=>{
+          const idx = arrLabel.findIndex(x=>x.ts===entry.ts);
+          if(idx>=0) arrLabel[idx] = entry; else { arrLabel.push(entry); addedLabel++; }
+        });
+        setLabelArchive(arrLabel);
+      }
+      renderSchedaArchive();
+      renderLabelArchive();
+      alert(`Backup importato: ${schede?schede.length:0} schede e ${etichette?etichette.length:0} etichette elaborate.`);
+    }catch(err){
+      alert('Errore nella lettura del file di backup: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
 // eventi
 $('#analyzeBtn').addEventListener('click',analyze);
 $('#clearBtn').addEventListener('click',()=>{state.manualPresent={};state.manualTrace={};state.derivedFrom={};state.notes={};state.autoDetections={};renderAll();persist();});
@@ -1059,6 +1147,13 @@ $('#labelPdfBtn').addEventListener('click',exportLabelPdf);
 $('#labelSaveBtn').addEventListener('click',saveCurrentLabel);
 $('#labelPrintAllBtn').addEventListener('click',printAllSavedLabels);
 $('#labelClearAllBtn').addEventListener('click',()=>{setLabelArchive([]);renderLabelArchive();});
+$('#exportBackupBtn').addEventListener('click', exportBackup);
+$('#importBackupBtn').addEventListener('click', ()=>{ $('#importBackupFile').click(); });
+$('#importBackupFile').addEventListener('change', (e)=>{
+  const file = e.target.files && e.target.files[0];
+  importBackupFromFile(file);
+  e.target.value = '';
+});
 $('#schedaSaveBtn').addEventListener('click',saveCurrentScheda);
 $('#schedaNewBtn').addEventListener('click',newScheda);
 $('#recipeCode').addEventListener('input',persist);
