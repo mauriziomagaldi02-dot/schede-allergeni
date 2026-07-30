@@ -1140,7 +1140,7 @@ const ALLERGEN_SHORT_LABELS = {
 // applicando temporaneamente lo stato salvato di ciascuna scheda senza toccare la scheda aperta ora.
 function computeAllergenRowsForArchive(){
   const savedStateSnapshot = JSON.parse(JSON.stringify(state));
-  const entries = getSchedaArchive().slice().sort((a,b)=>(a.product||'').localeCompare(b.product||'', 'it'));
+  const entries = getSchedaArchive().slice().sort((a,b)=>(a.code||'').localeCompare(b.code||'', 'it', {numeric:true}));
   const rows = entries.map(entry=>{
     Object.keys(state).forEach(k=>delete state[k]);
     Object.assign(state, entry.state||{});
