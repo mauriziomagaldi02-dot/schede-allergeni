@@ -258,19 +258,6 @@ function formatPriceDisplay(raw){
 }
 
 // Disegna il prezzo centrato con un riquadro arrotondato attorno; ritorna l'altezza del riquadro (mm)
-// Sceglie la dimensione più grande per il nome prodotto che stia in al massimo 2 righe,
-// cosi' i nomi lunghi non "rubano" spazio verticale agli allergeni (che non vanno mai tagliati).
-function pickTitleFontSize(doc, text, maxWidth){
-  const candidates = [16, 14, 12, 10.5, 9];
-  doc.setFont('helvetica', 'bold');
-  for (const s of candidates){
-    doc.setFontSize(s);
-    const lines = doc.splitTextToSize(text, maxWidth);
-    if (lines.length <= 2) return s;
-  }
-  return candidates[candidates.length-1];
-}
-
 function drawPriceBox(doc, centerX, y, text, fontSize=16, fillColorKey='giallo'){
   const col = getPriceColorRGB(fillColorKey);
   doc.setFont('helvetica','bold');
@@ -803,10 +790,8 @@ function exportLabelPdf(){
     }
   }
 
-  // Nome prodotto: dimensione adattiva (si riduce se il nome è lungo) per non consumare troppo spazio
-  const nameSize = pickTitleFontSize(doc, product, pageW - margin*2);
-  const nameGap = Math.round(nameSize*0.4375*10)/10;
-  centerText(product, nameSize, nameGap, true);
+  // Nome prodotto (dimensione fissa, come prima)
+  centerText(product, 16, 7, true);
   // Prezzo (abbassato con uno spazio fisso indipendente dal nome, con riquadro)
   if (price) {
     y += 3;
@@ -956,9 +941,7 @@ function exportOneLabelPdf(item){
     const lines = doc.splitTextToSize(txt, pageW - margin*2);
     for (const L of lines){ if (forceAll || y < usableH) doc.text(L, pageW/2, y, {align:'center'}); y += gap; }
   }
-  const nameSize = pickTitleFontSize(doc, product, pageW - margin*2);
-  const nameGap = Math.round(nameSize*0.4375*10)/10;
-  centerText(product, nameSize, nameGap, true);
+  centerText(product, 16, 7, true);
   if (price) {
     y += 3;
     const boxH = drawPriceBox(doc, pageW/2, y, price, 16, item.priceColor);
@@ -1043,9 +1026,7 @@ function printAllSavedLabels(){
       for(const L of lines){ if (forceAll || cy < usableH) doc.text(L, x + cellW/2, cy, {align:'center'}); cy += gap; }
     }
 
-    const nameSize = pickTitleFontSize(doc, product, maxW);
-    const nameGap = Math.round(nameSize*0.4375*10)/10;
-    ctext(product, nameSize, nameGap, true);
+    ctext(product, 16, 7, true);
     if (price) {
       cy += 3;
       const boxH = drawPriceBox(doc, x + cellW/2, cy, price, 16, item.priceColor);
