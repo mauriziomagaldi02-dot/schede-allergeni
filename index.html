@@ -158,6 +158,7 @@
           <input id="schedaSearch" class="note-input" style="margin-top:8px" placeholder="Cerca per nome prodotto o codice...">
           <div id="schedaArchiveList" style="margin-top:8px">Nessuna scheda salvata.</div>
           <div id="schedaArchivePager" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"></div>
+          <button id="allergenMatrixBtn" class="btn primary" style="margin-top:10px">Stampa tabella riepilogativa allergeni (tutte le ricette)</button>
         </div>
 
         <div class="card" style="margin-top:12px">
@@ -1117,6 +1118,106 @@ function importBackupFromFile(file){
   reader.readAsText(file);
 }
 
+// === Tabella riepilogativa allergeni (tutte le ricette salvate, stile "lista ingredienti") ===
+const ALLERGEN_SHORT_LABELS = {
+  glutine: 'Glutine',
+  crostacei: 'Crostacei',
+  uova: 'Uova',
+  pesce: 'Pesce',
+  arachidi: 'Arachidi',
+  soia: 'Soia',
+  latte: 'Latte / Lattosio',
+  frutta_guscio: 'Frutta a guscio',
+  sedano: 'Sedano',
+  senape: 'Senape',
+  sesamo: 'Sesamo',
+  solfiti: 'Solfiti',
+  lupini: 'Lupini',
+  molluschi: 'Molluschi'
+};
+
+// Ricalcola, per ogni scheda salvata, quali allergeni sono presenti (x) o possibile traccia (!),
+// applicando temporaneamente lo stato salvato di ciascuna scheda senza toccare la scheda aperta ora.
+function computeAllergenRowsForArchive(){
+  const savedStateSnapshot = JSON.parse(JSON.stringify(state));
+  const entries = getSchedaArchive().slice().sort((a,b)=>(a.product||'').localeCompare(b.product||'', 'it'));
+  const rows = entries.map(entry=>{
+    Object.keys(state).forEach(k=>delete state[k]);
+    Object.assign(state, entry.state||{});
+    const marks = ALLERGENS.map(a=>{
+      const present = !!state.manualPresent[a.id] || (!state.manualTrace[a.id] && !!(state.autoDetections[a.id] && !state.autoDetections[a.id].muted));
+      if(present) return 'x';
+      if(state.manualTrace[a.id]) return '!';
+      return '';
+    });
+    return { code: entry.code||'—', product: entry.product||'—', ingredients: entry.ingredients||'—', marks };
+  });
+  // Ripristino lo stato della scheda che l'utente ha aperta
+  Object.keys(state).forEach(k=>delete state[k]);
+  Object.assign(state, savedStateSnapshot);
+  return rows;
+}
+
+function exportAllergenMatrixPdf(){
+  const rows = computeAllergenRowsForArchive();
+  if(!rows.length){ alert('Non ci sono schede salvate da includere nella tabella.'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:'pt', format:'a4', orientation:'landscape' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 30;
+
+  const logoW = 80, logoH = logoW*(LOGO_NATIVE_H/LOGO_NATIVE_W);
+  doc.addImage(LOGO_DATA_URL, 'PNG', margin, 22, logoW, logoH);
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('Tabella riepilogativa allergeni', margin+logoW+16, 42);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text(`Familybar snc  ·  Data: ${todayIt()}`, margin+logoW+16, 58);
+
+  // Legenda colori
+  const legendX = pageW - margin - 190;
+  doc.setFillColor(231,76,60); doc.rect(legendX, 22, 11, 11, 'F');
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.5); doc.rect(legendX, 22, 11, 11);
+  doc.setFontSize(9); doc.setTextColor(0,0,0);
+  doc.text('x = contiene', legendX+16, 31);
+  doc.setFillColor(241,196,15); doc.rect(legendX, 38, 11, 11, 'F');
+  doc.rect(legendX, 38, 11, 11);
+  doc.text('! = può contenere tracce', legendX+16, 47);
+
+  const head = [['Codice','Prodotto','Ingredienti', ...ALLERGENS.map(a=>ALLERGEN_SHORT_LABELS[a.id]||a.name)]];
+  const body = rows.map(r=>[r.code, r.product, r.ingredients, ...r.marks]);
+
+  doc.autoTable({
+    head, body,
+    startY: 78,
+    margin: {left: margin, right: margin, bottom: 30},
+    styles: { fontSize:7.5, halign:'center', valign:'middle', lineColor:[130,130,130], lineWidth:0.5, cellPadding:3, overflow:'linebreak' },
+    headStyles: { fillColor:[35,45,35], textColor:255, fontSize:7.5, halign:'center', valign:'middle' },
+    columnStyles: {
+      0: { halign:'left', cellWidth: 50, fontStyle:'bold' },
+      1: { halign:'left', cellWidth: 100, fontStyle:'bold' },
+      2: { halign:'left', cellWidth: 220, fontSize:7 }
+    },
+    didParseCell: (data)=>{
+      if(data.section==='body' && data.column.index>=3){
+        const v = data.cell.raw;
+        if(v==='x'){ data.cell.styles.fillColor=[231,76,60]; data.cell.styles.textColor=255; data.cell.styles.fontStyle='bold'; }
+        else if(v==='!'){ data.cell.styles.fillColor=[241,196,15]; data.cell.styles.textColor=[0,0,0]; data.cell.styles.fontStyle='bold'; }
+      }
+    }
+  });
+
+  const n = doc.getNumberOfPages();
+  for(let i=1;i<=n;i++){
+    doc.setPage(i);
+    doc.setFontSize(8); doc.setTextColor(120);
+    doc.text(`Pagina ${i} di ${n}`, pageW-margin, doc.internal.pageSize.getHeight()-15, {align:'right'});
+  }
+
+  doc.save(`Tabella_riepilogativa_allergeni_${todayIt().replace(/\//g,'-')}.pdf`);
+}
+
 // eventi
 $('#analyzeBtn').addEventListener('click',analyze);
 $('#clearBtn').addEventListener('click',()=>{state.manualPresent={};state.manualTrace={};state.derivedFrom={};state.notes={};state.autoDetections={};renderAll();persist();});
@@ -1129,6 +1230,7 @@ $('#labelSaveBtn').addEventListener('click',saveCurrentLabel);
 $('#labelPrintAllBtn').addEventListener('click',printAllSavedLabels);
 $('#labelClearAllBtn').addEventListener('click',()=>{setLabelArchive([]);renderLabelArchive();});
 $('#exportBackupBtn').addEventListener('click', exportBackup);
+$('#allergenMatrixBtn').addEventListener('click', exportAllergenMatrixPdf);
 $('#importBackupBtn').addEventListener('click', ()=>{ $('#importBackupFile').click(); });
 $('#importBackupFile').addEventListener('change', (e)=>{
   const file = e.target.files && e.target.files[0];
